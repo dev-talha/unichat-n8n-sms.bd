@@ -1,16 +1,16 @@
-# Chatwoot to sms.bd SMS Automation for n8n
+# Unichat to sms.bd SMS Automation for n8n
 
-This repository contains an n8n workflow that connects Chatwoot with the sms.bd SMS API. When an agent sends an outgoing message from a Chatwoot inbox, the workflow extracts the contact phone number and message content, sends the message through sms.bd, and then writes the result back to the same Chatwoot conversation as a private note.
+This repository contains an n8n workflow that connects Unichat with the sms.bd SMS API. When an agent sends an outgoing message from a Unichat inbox, the workflow extracts the contact phone number and message content, sends the message through sms.bd, and then writes the result back to the same Unichat conversation as a private note.
 
 ## Features
 
-- Receives Chatwoot `message_created` webhook events.
+- Receives Unichat `message_created` webhook events.
 - Sends SMS only when `event` equals `message_created`.
-- Extracts the recipient number from the Chatwoot contact data.
-- Extracts the outgoing message content from the Chatwoot payload.
+- Extracts the recipient number from the Unichat contact data.
+- Extracts the outgoing message content from the Unichat payload.
 - Sends the message using the sms.bd Send SMS API.
 - Adds an optional SMS footer/signature from the workflow configuration.
-- Posts a clean private note back to Chatwoot after sending.
+- Posts a clean private note back to Unichat after sending.
 - Shows a success private note when sms.bd returns `error: 0`.
 - Shows the actual sms.bd error code and message when sending fails.
 - Keeps all configuration inside the n8n workflow. No `.env` file is required.
@@ -18,21 +18,21 @@ This repository contains an n8n workflow that connects Chatwoot with the sms.bd 
 ## Workflow Overview
 
 ```text
-Chatwoot Webhook
+Unichat Webhook
   -> Workflow Config - Edit Here
   -> Normalize + Add Footer
   -> Send SMS via sms.bd
-  -> Prepare Chatwoot Private Note
-  -> Add Private Note to Chatwoot
+  -> Prepare Unichat Private Note
+  -> Add Private Note to Unichat
 ```
 
 ## Requirements
 
 - n8n instance with public webhook access
-- Chatwoot account
-- Chatwoot user API access token
+- Unichat account
+- Unichat user API access token
 - sms.bd API key
-- A Chatwoot inbox that sends webhook events to n8n
+- A Unichat inbox that sends webhook events to n8n
 
 ## Importing the Workflow
 
@@ -42,7 +42,7 @@ Chatwoot Webhook
 4. Select the workflow JSON file.
 5. Open the imported workflow.
 6. Edit the node named **Workflow Config - Edit Here**.
-7. Add your sms.bd API key and Chatwoot API token.
+7. Add your sms.bd API key and Unichat API token.
 8. Save and activate the workflow.
 
 ## Configuration
@@ -57,8 +57,8 @@ Update these values:
 
 ```js
 smsbdApiKey: 'YOUR_SMSBD_API_KEY',
-chatwootBaseUrl: 'https://app.unichat.com.bd',
-chatwootApiToken: 'YOUR_CHATWOOT_USER_API_TOKEN',
+UnichatBaseUrl: 'https://app.unichat.com.bd',
+UnichatApiToken: 'YOUR_Unichat_USER_API_TOKEN',
 
 smsFooterEnabled: true,
 smsFooterText: 'Company Name\nSign: Your Team',
@@ -73,8 +73,8 @@ schedule: ''
 | Field | Description |
 |---|---|
 | `smsbdApiKey` | Your sms.bd API key. |
-| `chatwootBaseUrl` | Your Chatwoot base URL, for example `https://app.unichat.com.bd`. |
-| `chatwootApiToken` | Your Chatwoot user API access token. |
+| `UnichatBaseUrl` | Your Unichat base URL, for example `https://app.unichat.com.bd`. |
+| `UnichatApiToken` | Your Unichat user API access token. |
 | `smsFooterEnabled` | Set to `true` to append a footer to every SMS. Set to `false` to disable it. |
 | `smsFooterText` | Footer text added under the SMS message. You can use company name, signature, or support text. |
 | `senderId` | Optional approved sms.bd sender ID. Leave blank if not used. |
@@ -93,7 +93,7 @@ smsFooterText: 'ABC Company\nSupport Team'
 The SMS will be sent like this:
 
 ```text
-Original Chatwoot message
+Original Unichat message
 
 ABC Company
 Support Team
@@ -105,19 +105,19 @@ To disable the footer:
 smsFooterEnabled: false
 ```
 
-## Chatwoot Webhook Setup
+## Unichat Webhook Setup
 
-In Chatwoot, add the n8n webhook URL as a webhook endpoint.
+In Unichat, add the n8n webhook URL as a webhook endpoint.
 
 The webhook URL will look like this:
 
 ```text
-https://YOUR_N8N_DOMAIN/webhook/chatwoot-to-smsbd
+https://YOUR_N8N_DOMAIN/webhook/Unichat-to-smsbd
 ```
 
 Use the production webhook URL after activating the workflow.
 
-The workflow expects Chatwoot payloads with this event:
+The workflow expects Unichat payloads with this event:
 
 ```json
 {
@@ -151,11 +151,11 @@ Optional parameters:
 | `content_id` | Approved campaign content ID |
 | `schedule` | Scheduled sending time |
 
-## Chatwoot Private Note
+## Unichat Private Note
 
-After sms.bd responds, the workflow posts a private note back to the same Chatwoot conversation.
+After sms.bd responds, the workflow posts a private note back to the same Unichat conversation.
 
-Chatwoot API format:
+Unichat API format:
 
 ```http
 POST /api/v1/accounts/{account_id}/conversations/{conversation_id}/messages
@@ -186,7 +186,7 @@ When sms.bd returns:
 }
 ```
 
-Chatwoot private note will show:
+Unichat private note will show:
 
 ```text
 Message sent successfully.
@@ -204,7 +204,7 @@ When sms.bd returns an error, for example:
 }
 ```
 
-Chatwoot private note will show:
+Unichat private note will show:
 
 ```text
 Message send failed.
@@ -231,9 +231,9 @@ Error 417: Insufficient balance.
 | `417` | Insufficient balance |
 | `420` | Content blocked |
 
-## Expected Chatwoot Payload Fields
+## Expected Unichat Payload Fields
 
-The workflow reads these fields from the Chatwoot webhook payload:
+The workflow reads these fields from the Unichat webhook payload:
 
 ```js
 event
@@ -266,7 +266,7 @@ the workflow normalizes the number to:
 - The workflow sends SMS only for `message_created` events.
 - Private notes are created with `private: true`, so customers will not see them.
 - The workflow does not require a `.env` file.
-- Keep your sms.bd API key and Chatwoot API token private.
+- Keep your sms.bd API key and Unichat API token private.
 - Do not commit a production workflow JSON with real API keys to a public repository.
 
 ## Troubleshooting
@@ -276,16 +276,16 @@ the workflow normalizes the number to:
 Check the n8n execution history and open the node:
 
 ```text
-Add Private Note to Chatwoot
+Add Private Note to Unichat
 ```
 
 Common causes:
 
-- Wrong Chatwoot API token
-- Wrong Chatwoot base URL
+- Wrong Unichat API token
+- Wrong Unichat base URL
 - Token user does not have permission for the account/conversation
 - Incorrect `account_id` or `conversation_id`
-- Chatwoot API request body was changed manually
+- Unichat API request body was changed manually
 
 ### Private note appears but SMS does not send
 
@@ -303,7 +303,7 @@ Common causes:
 - Insufficient sms.bd balance
 - Message content blocked by sms.bd
 
-### Workflow triggers for other Chatwoot events
+### Workflow triggers for other Unichat events
 
 The workflow has a guard condition that only allows:
 
@@ -319,4 +319,4 @@ For production use, store API keys securely. This workflow keeps credentials ins
 
 ## License
 
-You can use and modify this workflow for your own Chatwoot and sms.bd automation.
+You can use and modify this workflow for your own Unichat and sms.bd automation.
