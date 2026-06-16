@@ -1,0 +1,196 @@
+{
+  "name": "Chatwoot to sms.bd SMS + Private Note v6 Rechecked",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chatwoot-to-smsbd",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 200,
+          "responseData": "success",
+          "responseContentType": "application/json",
+          "responseBody": "{\"ok\":true,\"message\":\"Chatwoot payload received\"}"
+        }
+      },
+      "id": "f926c533-b328-431f-b725-bead1833a7eb",
+      "name": "Chatwoot Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -900,
+        0
+      ],
+      "webhookId": "chatwoot-to-smsbd"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Edit all workflow settings here. No n8n ENV variable is required.\n// 1) Paste sms.bd API key.\n// 2) Paste Chatwoot base URL and API access token.\n// 3) Change SMS footer settings as needed.\n\nconst CONFIG = {\n  smsbdApiKey: 'PASTE_SMSBD_API_KEY_HERE',\n\n  // Chatwoot base URL, without trailing slash.\n  chatwootBaseUrl: 'https://app.unichat.com.bd',\n\n  // Chatwoot profile/access token with permission to create conversation messages.\n  chatwootApiToken: 'PASTE_CHATWOOT_API_ACCESS_TOKEN_HERE',\n\n  // SMS footer option. Keep enabled true to append footer to every SMS.\n  // Example footer: 'Company Name\\nSupport: 096xxxxxxx'\n  smsFooterEnabled: true,\n  smsFooterText: 'Company Name\\nSign: Your Team',\n\n  // Optional sms.bd parameters. Leave blank if you do not use these.\n  senderId: '',\n  contentId: '',\n  schedule: '',\n\n  // Chatwoot response will be posted as private note to avoid SMS loop.\n  chatwootPrivateReply: true\n};\n\nconst item = $input.first().json;\nreturn [{ json: { ...item, config: CONFIG } }];"
+      },
+      "id": "4c1c99d7-8d82-4367-a3da-532fc5dd24f6",
+      "name": "Workflow Config - Edit Here",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Chatwoot payload, prevent loops, normalize phone, add optional SMS footer, and build sms.bd URL.\n\nconst item = $input.first().json;\nconst config = item.config || {};\nconst body = item.body && typeof item.body === 'object' && Object.keys(item.body).length ? item.body : item;\n\nconst event = body.event;\nconst isPrivate = body.private === true;\nconst contentType = body.content_type || body.content?.content_type;\nconst messageType = body.message_type;\nconst senderType = body.sender?.type || body.sender_type;\n\n// Only send outgoing public text messages from Chatwoot agents/users.\n// This prevents incoming customer messages or private notes from being sent as SMS.\nconst isOutgoing = messageType === 'outgoing' || messageType === 1 || messageType === '1';\nconst isText = !contentType || contentType === 'text';\n\n// IMPORTANT: Send SMS only for Chatwoot message_created webhook events.\n// If event is missing or anything else, stop the workflow.\nif (event !== 'message_created') return [];\nif (!isOutgoing) return [];\nif (isPrivate) return [];\nif (!isText) return [];\nif (senderType === 'contact') return [];\n\nconst rawMessage = body.content || body.processed_message_content || body.messages?.[0]?.content || '';\nconst originalMessage = String(rawMessage).trim();\n\n// Loop guard: do not process Chatwoot notes/status messages.\nif (!originalMessage || originalMessage.startsWith('[SMS.BD]')) return [];\n\nconst sender = body.conversation?.meta?.sender || body.meta?.sender || {};\nlet rawPhone = sender.phone_number || sender.identifier || body.conversation?.contact_inbox?.source_id || '';\nrawPhone = String(rawPhone).split('@')[0];\n\nlet to = rawPhone.replace(/[^0-9]/g, '');\n\n// sms.bd accepts 8801XXXXXXXXX or 01XXXXXXXXX. Normalize to 880 format.\nif (to.startsWith('00')) to = to.slice(2);\nif (to.startsWith('0')) to = '88' + to;\nif (to.startsWith('1') && to.length === 10) to = '880' + to;\n\nconst footerText = config.smsFooterEnabled && String(config.smsFooterText || '').trim()\n  ? String(config.smsFooterText).trim()\n  : '';\nconst finalMessage = footerText ? `${originalMessage}\\n\\n${footerText}` : originalMessage;\n\nconst accountId = body.account?.id || body.conversation?.account_id;\nconst conversationId = body.conversation?.id;\nconst chatwootBaseUrl = String(config.chatwootBaseUrl || '').replace(/\\/$/, '');\nconst chatwootReplyUrl = `${chatwootBaseUrl}/api/v1/accounts/${accountId}/conversations/${conversationId}/messages`;\n\n// n8n Code node sandbox may not support URLSearchParams in some versions.\n// So we build the query string manually using encodeURIComponent.\nfunction enc(value) {\n  return encodeURIComponent(String(value ?? ''));\n}\n\nconst queryParts = [];\nqueryParts.push(`api_key=${enc(config.smsbdApiKey || '')}`);\nqueryParts.push(`msg=${enc(finalMessage)}`);\nqueryParts.push(`to=${enc(to)}`);\n\nif (String(config.schedule || '').trim()) queryParts.push(`schedule=${enc(String(config.schedule).trim())}`);\nif (String(config.senderId || '').trim()) queryParts.push(`sender_id=${enc(String(config.senderId).trim())}`);\nif (String(config.contentId || '').trim()) queryParts.push(`content_id=${enc(String(config.contentId).trim())}`);\n\nconst smsbdQueryString = queryParts.join('&');\n\nconst missingConfig = [];\nif (!config.smsbdApiKey || String(config.smsbdApiKey).includes('PASTE_')) missingConfig.push('smsbdApiKey');\nif (!config.chatwootApiToken || String(config.chatwootApiToken).includes('PASTE_')) missingConfig.push('chatwootApiToken');\nif (!config.chatwootBaseUrl) missingConfig.push('chatwootBaseUrl');\nif (!accountId) missingConfig.push('accountId from payload');\nif (!conversationId) missingConfig.push('conversationId from payload');\n\nreturn [\n  {\n    json: {\n      config,\n      accountId,\n      conversationId,\n      chatwootMessageId: body.id,\n      contactId: sender.id,\n      contactName: sender.name || '',\n      rawPhone,\n      to,\n      originalMessage,\n      footerText,\n      finalMessage,\n      inboxId: body.inbox?.id || body.conversation?.inbox_id,\n      smsbdUrl: `https://api.sms.net.bd/sendsms?${smsbdQueryString}`,\n      chatwootReplyUrl,\n      missingConfig,\n      validBangladeshMobile: /^8801[3-9]\\d{8}$/.test(to),\n      source: 'chatwoot'\n    }\n  }\n];"
+      },
+      "id": "2440013c-688b-4ade-b403-e6c6f8ca839a",
+      "name": "Normalize + Add Footer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.smsbdUrl}}",
+        "options": {}
+      },
+      "id": "57cc039b-8383-438d-93dc-fc37fd9c7a40",
+      "name": "Send SMS via sms.bd",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -120,
+        0
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build a clean Chatwoot private note from sms.bd response.\n// Success note: \"Message sent successfully.\"\n// Error note: shows the exact sms.bd error code and meaning.\n// This note never includes API keys, tokens, encoded URLs, or SMS body.\n\nconst original = $('Normalize + Add Footer').first().json;\nconst sms = $input.first().json || {};\n\nconst errorMessages = {\n  0: 'Success. Everything worked as expected.',\n  400: 'The request was rejected, due to a missing or invalid parameter.',\n  403: \"You don't have permissions to perform the request.\",\n  404: 'The requested resource not found.',\n  405: 'Authorization required.',\n  409: 'Unknown error occurred on Server end.',\n  410: 'Account expired.',\n  411: 'Reseller Account expired or suspended.',\n  412: 'Invalid Schedule.',\n  413: 'Invalid Sender ID.',\n  414: 'Message is empty.',\n  415: 'Message is too long.',\n  416: 'No valid number found.',\n  417: 'Insufficient balance.',\n  420: 'Content Blocked.'\n};\n\n// If n8n HTTP node failed before receiving a JSON sms.bd response,\n// continueOnFail normally gives an error object here.\nconst nodeError = sms.error && typeof sms.error === 'object' && (sms.error.message || sms.error.name);\nlet apiErrorCode = nodeError ? 'HTTP_REQUEST_FAILED' : sms.error;\n\n// Some n8n/http versions may wrap response in body/data as JSON string.\nlet parsed = sms;\nif (typeof sms.body === 'string') {\n  try { parsed = JSON.parse(sms.body); } catch (e) {}\n}\nif (typeof sms.data === 'string') {\n  try { parsed = JSON.parse(sms.data); } catch (e) {}\n}\nif (parsed && parsed !== sms && parsed.error !== undefined) {\n  apiErrorCode = parsed.error;\n}\n\nconst numericCode = Number(apiErrorCode);\nconst ok = !nodeError && numericCode === 0;\nconst requestId = parsed?.data?.request_id || sms?.data?.request_id || '';\nconst apiMessage = nodeError\n  ? (sms.error.message || sms.error.name || 'HTTP request failed')\n  : (parsed?.msg || sms?.msg || '');\n\nlet privateNote = '';\n\nif (ok) {\n  privateNote = 'Message sent successfully.';\n  if (requestId) privateNote += `\\nRequest ID: ${requestId}`;\n} else {\n  const meaning = errorMessages[numericCode] || apiMessage || 'Unknown error.';\n  const codeText = apiErrorCode === undefined || apiErrorCode === null || apiErrorCode === '' ? 'N/A' : apiErrorCode;\n  privateNote = `Message send failed.\\nError ${codeText}: ${meaning}`;\n  if (apiMessage && apiMessage !== meaning) privateNote += `\\nAPI Message: ${apiMessage}`;\n}\n\n// Add local validation warnings only when useful.\nif (original.missingConfig?.length) {\n  privateNote += `\\nMissing/placeholder config: ${original.missingConfig.join(', ')}`;\n}\nif (!original.validBangladeshMobile) {\n  privateNote += '\\nWarning: Phone number does not look like a valid Bangladesh mobile number.';\n}\n\nconst chatwootMessagePayload = {\n  content: privateNote,\n  message_type: 'outgoing',\n  private: true,\n  content_type: 'text'\n};\n\nreturn [\n  {\n    json: {\n      ...original,\n      smsbdResponse: parsed,\n      privateNote,\n      chatwootMessagePayload\n    }\n  }\n];"
+      },
+      "id": "8f909782-e44d-4899-8cc9-4e6926b03d9d",
+      "name": "Prepare Clean Private Note",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.chatwootReplyUrl}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "api_access_token",
+              "value": "={{$json.config.chatwootApiToken}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { content: $json.privateNote, message_type: 'outgoing', private: true, content_type: 'text' } }}",
+        "options": {}
+      },
+      "id": "477d8617-b7af-4188-b08b-b9831c5aeda0",
+      "name": "Add Private Note to Chatwoot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Setup - No ENV needed\n\nOpen **Workflow Config - Edit Here** node and set:\n\n- `smsbdApiKey`\n- `chatwootBaseUrl` without trailing slash, example: `https://app.unichat.com.bd`\n- `chatwootApiToken` = Chatwoot user API access token\n- `smsFooterEnabled` true/false\n- `smsFooterText` like company name/signature\n\nWebhook URL for Chatwoot:\n`https://YOUR_N8N_DOMAIN/webhook/chatwoot-to-smsbd`\n\nPrivate note endpoint used by this workflow:\n`POST /api/v1/accounts/{accountId}/conversations/{conversationId}/messages`\n\nPayload used:\n```json\n{\n  \"content\": \"Message sent successfully.\",\n  \"message_type\": \"outgoing\",\n  \"private\": true,\n  \"content_type\": \"text\"\n}\n```\n\nV6 fix:\n- Private note HTTP node now sends the body as raw JSON/object, matching Chatwoot curl format.\n- `accountId` comes from `payload.account.id`.\n- `conversationId` comes from `payload.conversation.id`.\n- SMS is sent only when `event === \"message_created\"`.\n",
+        "height": 420,
+        "width": 520
+      },
+      "id": "141d3139-34b9-4ddd-96a4-162737763100",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        -420
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Chatwoot Webhook": {
+      "main": [
+        [
+          {
+            "node": "Workflow Config - Edit Here",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Config - Edit Here": {
+      "main": [
+        [
+          {
+            "node": "Normalize + Add Footer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize + Add Footer": {
+      "main": [
+        [
+          {
+            "node": "Send SMS via sms.bd",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS via sms.bd": {
+      "main": [
+        [
+          {
+            "node": "Prepare Clean Private Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Clean Private Note": {
+      "main": [
+        [
+          {
+            "node": "Add Private Note to Chatwoot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "96439a76-93bd-45a4-9fbc-8f12c7ef180a",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "smsbd-v5-private-note-fix",
+  "tags": []
+}
