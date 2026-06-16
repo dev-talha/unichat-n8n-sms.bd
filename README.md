@@ -252,13 +252,13 @@ Phone number priority:
 For WhatsApp identifiers like:
 
 ```text
-8801765447530@s.whatsapp.net
+8801765997530@s.whatsapp.net
 ```
 
 the workflow normalizes the number to:
 
 ```text
-8801765447530
+8801765997530
 ```
 
 ## Important Notes
